@@ -1,0 +1,136 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --bg-page: #FAF9F6;
+  --bg-card: #FFFFFF;
+  --bg-panel: #F4F4F1;
+  --bg-input: #FAF9F6;
+  
+  --border-main: #E5E5DF;
+  --border-divider: #F0EFEB;
+  --border-focus: #6B7F62;
+  
+  --text-main: #2D2D2A;
+  --text-title: #1E1E1C;
+  --text-muted: #7A7A73;
+  --text-secondary: #4B4B43;
+  
+  --color-accent: #6B7F62;
+  --color-accent-hover: #5D6F55;
+  --color-accent-bg: #EBF5E9;
+  --color-accent-border: #C8E6C9;
+  
+  --color-error-bg: #FFEBEE;
+  --color-error-text: #C62828;
+  --color-error-border: #FFCDD2;
+  
+  --color-warning-bg: #FFF8E1;
+  --color-warning-text: #856404;
+  --color-warning-border: #FFE699;
+}
+
+.dark {
+  --bg-page: #121210;
+  --bg-card: #1A1A18;
+  --bg-panel: #22221F;
+  --bg-input: #292926;
+  
+  --border-main: #2D2D2A;
+  --border-divider: #262623;
+  --border-focus: #8BA37F;
+  
+  --text-main: #E5E5DF;
+  --text-title: #FAF9F6;
+  --text-muted: #9A9A90;
+  --text-secondary: #C4C4BC;
+  
+  --color-accent: #8BA37F;
+  --color-accent-hover: #738869;
+  --color-accent-bg: #1B291A;
+  --color-accent-border: #2C422A;
+  
+  --color-error-bg: #351515;
+  --color-error-text: #FF6B6B;
+  --color-error-border: #5A1E1E;
+  
+  --color-warning-bg: #2C2210;
+  --color-warning-text: #FFD54F;
+  --color-warning-border: #4D3C19;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Dynamic theme overrides to support both light and dark mode beautifully without changing full React source classes */
+
+body {
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Page & Main backgrounds */
+.bg-\[\#FAF9F6\] { background-color: var(--bg-page) !important; }
+.bg-\[\#FAF9F6\]\/80 { background-color: var(--bg-page) !important; opacity: 0.8; }
+.bg-white { background-color: var(--bg-card) !important; }
+.bg-\[\#F4F4F1\] { background-color: var(--bg-panel) !important; }
+
+/* Inputs and interactive items */
+.bg-\[\#FAF9F6\] { background-color: var(--bg-input) !important; }
+.bg-\[\#FAF9F6\]\/60 { background-color: var(--bg-input) !important; opacity: 0.6; }
+.bg-\[\#FAF9F6\]\/50 { background-color: var(--bg-input) !important; opacity: 0.5; }
+
+/* Accent backgrounds */
+.bg-\[\#6B7F62\] { background-color: var(--color-accent) !important; }
+.hover\:bg-\[\#5D6F55\]:hover { background-color: var(--color-accent-hover) !important; }
+.bg-\[\#EBF5E9\] { background-color: var(--color-accent-bg) !important; }
+
+/* Alert and state backgrounds */
+.bg-\[\#FFEBEE\] { background-color: var(--color-error-bg) !important; }
+.bg-\[\#FFF8E1\] { background-color: var(--color-warning-bg) !important; }
+.bg-\[\#FFF3CD\] { background-color: var(--color-warning-bg) !important; }
+.bg-\[\#FFEBAA\] { background-color: var(--color-warning-border) !important; }
+
+/* Borders */
+.border-\[\#E5E5DF\] { border-color: var(--border-main) !important; }
+.border-\[\#F0EFEB\] { border-color: var(--border-divider) !important; }
+.border-\[\#6B7F62\] { border-color: var(--color-accent) !important; }
+.hover\:border-\[\#6B7F62\]:hover { border-color: var(--color-accent) !important; }
+.hover\:border-\[\#6B7F62\]\/50:hover { border-color: var(--color-accent) !important; opacity: 0.8; }
+.hover\:border-\[\#6B7F62\]\/60:hover { border-color: var(--color-accent) !important; opacity: 0.8; }
+.border-\[\#C8E6C9\] { border-color: var(--color-accent-border) !important; }
+.border-\[\#FFCDD2\] { border-color: var(--color-error-border) !important; }
+.border-\[\#FFE699\] { border-color: var(--color-warning-border) !important; }
+
+/* Text colors */
+.text-\[\#2D2D2A\] { color: var(--text-main) !important; }
+.text-\[\#1E1E1C\] { color: var(--text-title) !important; }
+.text-\[\#7A7A73\] { color: var(--text-muted) !important; }
+.text-\[\#4B4B43\] { color: var(--text-secondary) !important; }
+.text-\[\#6B7F62\] { color: var(--color-accent) !important; }
+.text-\[\#2E7D32\] { color: var(--color-accent) !important; }
+.text-\[\#C62828\] { color: var(--color-error-text) !important; }
+.text-\[\#856404\] { color: var(--color-warning-text) !important; }
+.text-\[\#F57F17\] { color: var(--color-warning-text) !important; }
+.text-\[\#909088\] { color: var(--text-muted) !important; }
+.text-\[\#A6A69E\] { color: var(--text-muted) !important; }
+
+/* Special text color desaturation for placeholders */
+.placeholder-\[\#A6A69E\]::placeholder { color: var(--text-muted) !important; }
+
+/* SVG stroke overrides */
+.stroke-\[\#6B7F62\] { stroke: var(--color-accent) !important; }
+
+/* Extra dynamic adjustments for form elements inside dark mode */
+.dark input, .dark select, .dark textarea {
+  background-color: var(--bg-page) !important;
+  color: var(--text-title) !important;
+  border-color: var(--border-main) !important;
+}
+
+.dark input:focus, .dark select:focus, .dark textarea:focus {
+  border-color: var(--color-accent) !important;
+}
