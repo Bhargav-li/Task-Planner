@@ -13,6 +13,68 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json());
 
+// Enable CORS policy
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// User token usage rate limiter (max 10% of 1,000,000 total tokens = 100,000 tokens per hour)
+interface TokenRecord {
+  tokens: number;
+  resetTime: number;
+}
+const userTokenUsage = new Map<string, TokenRecord>();
+const MAX_TOKENS_PER_USER = 100000; // 10% of 1M context tokens
+const RESET_WINDOW_MS = 60 * 60 * 1000; // 1 hour rolling window
+
+function getClientIp(req: express.Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    const ip = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
+    return ip.trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+function estimateTokens(text: string): number {
+  return Math.ceil((text || '').length / 4);
+}
+
+// Input sanitization to protect against command and prompt injections
+function sanitizeInput(text: string): string {
+  if (typeof text !== 'string') return '';
+  
+  // 1. Strip HTML tags / script tags to avoid simple script injections
+  let sanitized = text.replace(/<[^>]*>/g, '');
+  
+  // 2. Mitigate system-override prompt injection patterns
+  const promptInjectionPhrases = [
+    /ignore\s+(?:the\s+)?(?:above|previous|system|instruction|guideline)/gi,
+    /override\s+(?:the\s+)?(?:above|previous|system|instruction|guideline)/gi,
+    /forget\s+(?:the\s+)?(?:above|previous|system|instruction|guideline)/gi,
+    /disregard\s+(?:the\s+)?(?:above|previous|system|instruction|guideline)/gi,
+    /you\s+must\s+now\s+act\s+as/gi,
+    /new\s+rule:/gi,
+    /stop\s+following\s+instructions/gi,
+    /instead,\s+do\s+the\s+following/gi,
+  ];
+  
+  for (const regex of promptInjectionPhrases) {
+    sanitized = sanitized.replace(regex, '[neutralized injection attempt]');
+  }
+
+  // 3. Remove non-printable control characters
+  sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+
+  return sanitized.trim();
+}
+
 // Initialize Gemini client lazily.
 let aiInstance: GoogleGenAI | null = null;
 function getGeminiClient() {
@@ -163,48 +225,99 @@ app.post('/api/schedule', async (req, res) => {
     return res.status(400).json({ error: 'Please provide a non-empty list of tasks.' });
   }
 
+  // 1. Task count cap on tasks sent to Gemini
+  const MAX_TASKS = 15;
+  const tasksToProcess = tasks.slice(0, MAX_TASKS);
+  const isCapped = tasks.length > MAX_TASKS;
+
+  // 2. Input Sanitization to avoid command and prompt injection
+  const sEnergyLevel = sanitizeInput(energyLevel || 'Moderate');
+  const sPeakHours = sanitizeInput(peakHours || 'Flexible');
+  const sExtraNotes = sanitizeInput(extraNotes || 'Minimalist approach');
+  const sEnergyCycle = sanitizeInput(energyCycle || 'Steady energy throughout the day');
+  
+  const sanitizedTasks = tasksToProcess.map((t: any) => ({
+    title: sanitizeInput(t.title || 'Untitled Task'),
+    description: sanitizeInput(t.description || ''),
+    priority: sanitizeInput(t.priority || 'Medium'),
+    estimatedMinutes: typeof t.estimatedMinutes === 'number' ? t.estimatedMinutes : 30,
+    type: sanitizeInput(t.type || 'Deep Work')
+  }));
+
+  // Clean behavioral analysis inputs as well
+  const bAnalysis = behaviorAnalysis ? {
+    isSufficientData: !!behaviorAnalysis.isSufficientData,
+    totalCompleted: Number(behaviorAnalysis.totalCompleted) || 0,
+    peakPeriod: sanitizeInput(behaviorAnalysis.peakPeriod || 'Flexible'),
+    peakPercentage: Number(behaviorAnalysis.peakPercentage) || 0,
+    detectedCycle: sanitizeInput(behaviorAnalysis.detectedCycle || 'calibrated rhythm')
+  } : null;
+
   try {
-    const ai = getGeminiClient();
-    
     let behavioralContext = '';
     let insightsRequirement = '';
     
-    if (behaviorAnalysis && behaviorAnalysis.isSufficientData) {
+    if (bAnalysis && bAnalysis.isSufficientData) {
       behavioralContext = `
       [BEHAVIORAL FOCUS ANALYTICS - REAL USER COMPLETED TASK HISTORICAL DATA]
-      - Total Completed Tasks Analysed: ${behaviorAnalysis.totalCompleted}
-      - Real Computed Peak Productivity Block: ${behaviorAnalysis.peakPeriod} (${behaviorAnalysis.peakPercentage}% of completions occur here)
-      - Calibrated Energy Cycle Rhythm: "${behaviorAnalysis.detectedCycle}"
+      - Total Completed Tasks Analysed: ${bAnalysis.totalCompleted}
+      - Real Computed Peak Productivity Block: ${bAnalysis.peakPeriod} (${bAnalysis.peakPercentage}% of completions occur here)
+      - Calibrated Energy Cycle Rhythm: "${bAnalysis.detectedCycle}"
       `;
-      insightsRequirement = `EXPLICITLY mention in at least one insight that this optimized schedule has been tailored using their genuine historical task completion velocity (${behaviorAnalysis.detectedCycle || 'calibrated rhythm'}).`;
+      insightsRequirement = `EXPLICITLY mention in at least one insight that this optimized schedule has been tailored using their genuine historical task completion velocity (${bAnalysis.detectedCycle || 'calibrated rhythm'}).`;
     } else {
-      const completedCount = behaviorAnalysis?.totalCompleted || 0;
+      const completedCount = bAnalysis?.totalCompleted || 0;
       behavioralContext = `
       [BEHAVIORAL FOCUS ANALYTICS]
       - Awaiting calibration. The user has only completed ${completedCount} tasks with timestamps.
       `;
-      insightsRequirement = `Mention in at least one insight that completing more tasks will unlock automated calibration, which will fine-tune their schedule around their actual hourly execution patterns. Currently, it is optimized based on their reported "${energyCycle}" cycle.`;
+      insightsRequirement = `Mention in at least one insight that completing more tasks will unlock automated calibration, which will fine-tune their schedule around their actual hourly execution patterns. Currently, it is optimized based on their reported "${sEnergyCycle}" cycle.`;
     }
 
+    // Structure prompts securely using delimiters to isolate user-provided inputs
     const prompt = `Analyze these tasks and the user's focus preferences to generate a highly optimized daily schedule and qualitative productivity insights.
     
-    User Peak Hours: ${peakHours || 'Flexible'}
-    Current Energy/Mood: ${energyLevel || 'Moderate'}
-    Approximate Daily Energy Cycle Pattern: ${energyCycle || 'Steady energy throughout the day'}
-    Additional Preferences: ${extraNotes || 'Minimalist approach'}
+    <user_preferences>
+    User Peak Hours: ${sPeakHours}
+    Current Energy/Mood: ${sEnergyLevel}
+    Approximate Daily Energy Cycle Pattern: ${sEnergyCycle}
+    Additional Preferences: ${sExtraNotes}
+    </user_preferences>
+
+    <behavioral_context>
     ${behavioralContext}
+    </behavioral_context>
     
-    Current Tasks:
-    ${tasks.map((t, i) => `${i + 1}. [${t.priority} Priority] ${t.title} - Est: ${t.estimatedMinutes || 30}m. Desc: ${t.description || 'No description'}`).join('\n')}
+    <user_tasks>
+    ${sanitizedTasks.map((t, i) => `${i + 1}. [${t.priority} Priority] ${t.title} - Est: ${t.estimatedMinutes}m. Desc: ${t.description}`).join('\n')}
+    </user_tasks>
     
     Requirements:
     1. Organize the day into logical, high-focus chunks.
-    2. Group tasks to avoid context switching. Match high-priority, intensive tasks to peak energy hours based on the reported Daily Energy Cycle Pattern (${energyCycle || 'Steady'}).
+    2. Group tasks to avoid context switching. Match high-priority, intensive tasks to peak energy hours based on the reported Daily Energy Cycle Pattern (${sEnergyCycle}).
     3. Include brief, structured breaks or routine blocks to prevent burnout.
     4. Provide minimalist, action-oriented schedule items.
     5. Formulate 2-3 clean, high-impact qualitative insights or focus suggestions explaining how this arrangement matches their energy cycle.
-    6. ${insightsRequirement}`;
+    6. ${insightsRequirement}
+    ${isCapped ? "7. Add a subtle, encouraging note in one insight mentioning that only the first 15 high-focus tasks were scheduled to ensure realistic cognitive budgeting." : ""}`;
 
+    // 3. User Token Limiter (each user during one use can use at max 10% of total tokens = 100,000 tokens)
+    const clientIp = getClientIp(req);
+    const estimatedInputTokens = estimateTokens(prompt);
+    const now = Date.now();
+    let record = userTokenUsage.get(clientIp);
+    if (!record || now > record.resetTime) {
+      record = { tokens: 0, resetTime: now + RESET_WINDOW_MS };
+    }
+
+    if (record.tokens + estimatedInputTokens > MAX_TOKENS_PER_USER) {
+      console.warn(`Token limit exceeded for IP ${clientIp}. Used: ${record.tokens}, Attempted: ${estimatedInputTokens}`);
+      return res.status(429).json({
+        error: `Token usage limit exceeded. To maintain platform stability, each user is limited to 10% of system tokens per hour (100,000 tokens). You have used ${record.tokens} tokens in the past hour. Please wait before scheduling more tasks.`
+      });
+    }
+
+    const ai = getGeminiClient();
     const response = await retryWithBackoff(() => ai.models.generateContent({
       model: 'gemini-3.5-flash',
       contents: prompt,
@@ -261,11 +374,19 @@ app.post('/api/schedule', async (req, res) => {
       throw new Error('Gemini returned empty response text.');
     }
 
+    // Record verified token consumption
+    const estimatedOutputTokens = estimateTokens(text);
+    record.tokens += (estimatedInputTokens + estimatedOutputTokens);
+    userTokenUsage.set(clientIp, record);
+
     res.json(JSON.parse(text));
   } catch (error: any) {
     console.error('Error generating schedule (falling back to programmatic generator):', error);
     // Graceful server-side fallback
-    const fallback = generateServerFallbackSchedule(tasks, peakHours, energyLevel, energyCycle);
+    const fallback = generateServerFallbackSchedule(sanitizedTasks, sPeakHours, sEnergyLevel, sEnergyCycle);
+    if (isCapped) {
+      fallback.insights.push("Only your top 15 tasks were budgeted in this programmatic schedule to avoid cognitive overload.");
+    }
     res.json(fallback);
   }
 });
@@ -278,17 +399,39 @@ app.post('/api/pathway', async (req, res) => {
     return res.status(400).json({ error: 'Please provide a task title.' });
   }
 
+  // 1. Input Sanitization to avoid command and prompt injection
+  const sTaskTitle = sanitizeInput(taskTitle);
+  const sTaskDescription = sanitizeInput(taskDescription || '');
+  const sPriority = sanitizeInput(priority || 'Medium');
+
   try {
-    const ai = getGeminiClient();
-    
     const prompt = `Create a step-by-step action pathway and distraction-free focus guidelines for this task to overcome procrastination and optimize execution.
     
-    Task Title: ${taskTitle}
-    Task Description: ${taskDescription || 'No description provided'}
-    Task Priority: ${priority || 'Medium'}
+    <task_info>
+    Task Title: ${sTaskTitle}
+    Task Description: ${sTaskDescription || 'No description provided'}
+    Task Priority: ${sPriority}
+    </task_info>
     
     Provide exactly 3 to 4 bite-sized sub-steps that represent the path of least resistance to start and finish this task. Provide a supportive focus mantra and a micro-guideline on how to manage any friction or mental block for this specific activity.`;
 
+    // 2. User Token Limiter (each user during one use can use at max 10% of total tokens = 100,000 tokens)
+    const clientIp = getClientIp(req);
+    const estimatedInputTokens = estimateTokens(prompt);
+    const now = Date.now();
+    let record = userTokenUsage.get(clientIp);
+    if (!record || now > record.resetTime) {
+      record = { tokens: 0, resetTime: now + RESET_WINDOW_MS };
+    }
+
+    if (record.tokens + estimatedInputTokens > MAX_TOKENS_PER_USER) {
+      console.warn(`Token limit exceeded for IP ${clientIp}. Used: ${record.tokens}, Attempted: ${estimatedInputTokens}`);
+      return res.status(429).json({
+        error: `Token usage limit exceeded. To maintain platform stability, each user is limited to 10% of system tokens per hour (100,000 tokens). You have used ${record.tokens} tokens in the past hour. Please wait before requesting pathways.`
+      });
+    }
+
+    const ai = getGeminiClient();
     const response = await retryWithBackoff(() => ai.models.generateContent({
       model: 'gemini-3.5-flash',
       contents: prompt,
@@ -330,11 +473,16 @@ app.post('/api/pathway', async (req, res) => {
       throw new Error('Gemini returned empty response text.');
     }
 
+    // Record verified token consumption
+    const estimatedOutputTokens = estimateTokens(text);
+    record.tokens += (estimatedInputTokens + estimatedOutputTokens);
+    userTokenUsage.set(clientIp, record);
+
     res.json(JSON.parse(text));
   } catch (error: any) {
     console.error('Error generating pathway (falling back to programmatic generator):', error);
     // Graceful server-side fallback
-    const fallback = generateServerFallbackPathway(taskTitle, taskDescription || '', priority || 'Medium');
+    const fallback = generateServerFallbackPathway(sTaskTitle, sTaskDescription, sPriority);
     res.json(fallback);
   }
 });

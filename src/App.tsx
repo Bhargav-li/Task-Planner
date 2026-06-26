@@ -310,6 +310,41 @@ function stopAmbientRain() {
   }
 }
 
+const calculateStreakFromDates = (dates: string[]): number => {
+  if (dates.length === 0) return 0;
+  const uniqueDates = Array.from(new Set(dates));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const todayStr = today.toDateString();
+  const yesterdayStr = yesterday.toDateString();
+  
+  if (!uniqueDates.includes(todayStr) && !uniqueDates.includes(yesterdayStr)) {
+    return 0;
+  }
+  
+  let currentCheck = uniqueDates.includes(todayStr) ? today : yesterday;
+  let streakCount = 0;
+  
+  let safeLimit = 1000;
+  while (safeLimit > 0) {
+    safeLimit--;
+    const checkStr = currentCheck.toDateString();
+    if (uniqueDates.includes(checkStr)) {
+      streakCount++;
+      currentCheck = new Date(currentCheck);
+      currentCheck.setDate(currentCheck.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  
+  return streakCount;
+};
+
 // Fallback logic for when user is offline or API key is not present
 function generateLocalSchedule(tasks: Task[], peakHours: string, energyLevel: string, energyCycle?: string): { schedule: TimelineItem[], insights: string[] } {
   const activeTasks = tasks.filter(t => !t.isCompleted);
@@ -456,6 +491,44 @@ export default function App() {
   const [streak, setStreak] = useState(0);
   const [totalFocusMinutes, setTotalFocusMinutes] = useState(0);
   const [completedTodayCount, setCompletedTodayCount] = useState(0);
+
+  const updateCompletedDatesAndStreak = (updatedTasks: Task[], addedDateStr?: string, removedDateStr?: string) => {
+    try {
+      const savedHistoricalStr = localStorage.getItem('focus_completed_dates');
+      let historicalDates: string[] = [];
+      if (savedHistoricalStr) {
+        historicalDates = JSON.parse(savedHistoricalStr);
+      }
+
+      const activeCompletedDates = updatedTasks
+        .filter(t => t.isCompleted && t.completedAt)
+        .map(t => new Date(t.completedAt!).toDateString());
+
+      let combined = Array.from(new Set([...historicalDates, ...activeCompletedDates]));
+
+      if (addedDateStr) {
+        combined.push(addedDateStr);
+        combined = Array.from(new Set(combined));
+      }
+
+      if (removedDateStr) {
+        const otherCompletedOnSameDate = updatedTasks.some(
+          t => t.isCompleted && t.completedAt && new Date(t.completedAt).toDateString() === removedDateStr
+        );
+        if (!otherCompletedOnSameDate) {
+          combined = combined.filter(d => d !== removedDateStr);
+        }
+      }
+
+      localStorage.setItem('focus_completed_dates', JSON.stringify(combined));
+
+      const newStreak = calculateStreakFromDates(combined);
+      setStreak(newStreak);
+      localStorage.setItem('focus_streak', String(newStreak));
+    } catch (err) {
+      console.warn("Error updating streak:", err);
+    }
+  };
 
   // Dark Mode and Weather Sync States
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -735,8 +808,22 @@ export default function App() {
         setCompletedTodayCount(0);
         localStorage.setItem('focus_completed_today', '0');
         
-        setStreak(0);
-        localStorage.setItem('focus_streak', '0');
+        // Recalculate streak dynamically based on historical dates
+        const savedHistoricalStr = localStorage.getItem('focus_completed_dates');
+        if (savedHistoricalStr) {
+          try {
+            const uniqueCombined = JSON.parse(savedHistoricalStr);
+            const newStreak = calculateStreakFromDates(uniqueCombined);
+            setStreak(newStreak);
+            localStorage.setItem('focus_streak', String(newStreak));
+          } catch (e) {
+            setStreak(0);
+            localStorage.setItem('focus_streak', '0');
+          }
+        } else {
+          setStreak(0);
+          localStorage.setItem('focus_streak', '0');
+        }
       }
     }, 1000);
     return () => clearInterval(clockInterval);
@@ -782,7 +869,44 @@ export default function App() {
       if (savedInsights) setAiInsights(JSON.parse(savedInsights));
 
       const savedStreak = localStorage.getItem('focus_streak');
-      if (savedStreak) setStreak(parseInt(savedStreak) || 0);
+      const savedHistoricalStr = localStorage.getItem('focus_completed_dates');
+      const finalStreakValue = parseInt(savedStreak || '0') || 0;
+      
+      if (!savedHistoricalStr && finalStreakValue > 0) {
+        // Bootstrap historical completed dates based on existing streak
+        const generatedDates: string[] = [];
+        const base = new Date();
+        for (let i = 0; i < finalStreakValue; i++) {
+          const d = new Date(base);
+          d.setDate(d.getDate() - i);
+          generatedDates.push(d.toDateString());
+        }
+        localStorage.setItem('focus_completed_dates', JSON.stringify(generatedDates));
+        setStreak(finalStreakValue);
+      } else if (savedHistoricalStr) {
+        try {
+          const historicalDates = JSON.parse(savedHistoricalStr);
+          // Ensure today is accounted for if there are completed tasks today
+          const todayStr = new Date().toDateString();
+          const activeCompleted = loadedTasks.some(
+            t => t.isCompleted && t.completedAt && new Date(t.completedAt).toDateString() === todayStr
+          );
+          let combined = [...historicalDates];
+          if (activeCompleted) {
+            combined.push(todayStr);
+          }
+          const uniqueCombined = Array.from(new Set(combined));
+          localStorage.setItem('focus_completed_dates', JSON.stringify(uniqueCombined));
+          
+          const newStreak = calculateStreakFromDates(uniqueCombined);
+          setStreak(newStreak);
+          localStorage.setItem('focus_streak', String(newStreak));
+        } catch (e) {
+          setStreak(finalStreakValue);
+        }
+      } else {
+        setStreak(0);
+      }
 
       const savedFocusMins = localStorage.getItem('focus_total_minutes');
       if (savedFocusMins) setTotalFocusMinutes(parseInt(savedFocusMins) || 0);
@@ -913,11 +1037,8 @@ export default function App() {
               setCompletedTodayCount(newCompToday);
               localStorage.setItem('focus_completed_today', String(newCompToday));
 
-              // Auto increment streak if there are tasks completed today
-              if (streak === 0) {
-                setStreak(1);
-                localStorage.setItem('focus_streak', '1');
-              }
+              // Update completed dates list and streak
+              updateCompletedDatesAndStreak(updated, new Date().toDateString());
             }
             
             // Back out of focus mode
@@ -1005,14 +1126,9 @@ export default function App() {
     setCompletedTodayCount(currentCompleted);
     localStorage.setItem('focus_completed_today', String(currentCompleted));
 
-    // Simple streak handling
-    if (currentCompleted > 0 && streak === 0) {
-      setStreak(1);
-      localStorage.setItem('focus_streak', '1');
-    } else if (currentCompleted === 0) {
-      setStreak(0);
-      localStorage.setItem('focus_streak', '0');
-    }
+    // Update completed dates list and streak
+    const completionDateStr = new Date(timestamp).toDateString();
+    updateCompletedDatesAndStreak(updated, completionDateStr);
   };
 
   // Mark task completed (toggles or requests completion timing)
@@ -1034,10 +1150,8 @@ export default function App() {
       const currentCompleted = updated.filter(t => t.isCompleted && t.completedAt && new Date(t.completedAt).toDateString() === new Date().toDateString()).length;
       setCompletedTodayCount(currentCompleted);
       localStorage.setItem('focus_completed_today', String(currentCompleted));
-      if (currentCompleted === 0) {
-        setStreak(0);
-        localStorage.setItem('focus_streak', '0');
-      }
+      const removedDateStr = task.completedAt ? new Date(task.completedAt).toDateString() : undefined;
+      updateCompletedDatesAndStreak(updated, undefined, removedDateStr);
     } else {
       // Show timing selection modal
       setCompletingTask(task);
@@ -1441,12 +1555,12 @@ export default function App() {
                           >
                             {task.isCompleted && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                           </button>
-                          <div>
-                            <p className={`text-sm font-bold text-[#1E1E1C] ${task.isCompleted ? 'line-through text-[#909088]' : ''}`}>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-sm font-bold text-[#1E1E1C] break-words ${task.isCompleted ? 'line-through text-[#909088]' : ''}`}>
                               {task.title}
                             </p>
                             {task.description && (
-                              <p className="text-xs text-[#7A7A73] mt-0.5 line-clamp-2">
+                              <p className="text-xs text-[#7A7A73] mt-0.5 line-clamp-2 break-words">
                                 {task.description}
                               </p>
                             )}
