@@ -1331,14 +1331,14 @@ export default function App() {
     <div className="min-h-screen bg-[#FAF9F6] text-[#2D2D2A] font-sans antialiased selection:bg-[#E5E5DF] transition-colors duration-500 pb-12">
       
       {/* Header Bar */}
-      <header className="sticky top-0 z-40 bg-[#FAF9F6]/80 backdrop-blur-md border-b border-[#E5E5DF] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center space-x-3" id="logo-section">
-          <div className="w-9 h-9 rounded-full bg-[#6B7F62] flex items-center justify-center text-white shadow-sm">
-            <Target className="w-5 h-5" />
+      <header className="sticky top-0 z-40 bg-[#FAF9F6]/80 backdrop-blur-md border-b border-[#E5E5DF] px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between">
+        <div className="flex items-center space-x-2 sm:space-x-3" id="logo-section">
+          <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-full bg-[#6B7F62] flex items-center justify-center text-white shadow-sm flex-shrink-0">
+            <Target className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight text-[#1E1E1C]">Focus Task Planner</h1>
-            <p className="text-xs text-[#7A7A73] font-medium tracking-wide uppercase">Minimalist Mindspace</p>
+          <div className="min-w-0">
+            <h1 className="text-sm sm:text-lg font-bold tracking-tight text-[#1E1E1C] truncate">Focus Task Planner</h1>
+            <p className="hidden sm:block text-[10px] sm:text-xs text-[#7A7A73] font-medium tracking-wide uppercase">Minimalist Mindspace</p>
           </div>
         </div>
 
@@ -1351,39 +1351,39 @@ export default function App() {
         </div>
 
         {/* System Settings & Network Indicators */}
-        <div className="flex items-center space-x-3" id="system-indicators">
-          <div className={`flex items-center px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide transition-all ${
+        <div className="flex items-center space-x-1.5 sm:space-x-3 flex-shrink-0" id="system-indicators">
+          <div className={`flex items-center px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-semibold tracking-wide transition-all ${
             isOnline 
               ? 'bg-[#EBF5E9] text-[#2E7D32] border border-[#C8E6C9]' 
               : 'bg-[#FFEBEE] text-[#C62828] border border-[#FFCDD2]'
           }`}>
             {isOnline ? (
               <>
-                <Wifi className="w-3.5 h-3.5 mr-1.5" />
-                Online (AI Active)
+                <Wifi className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 sm:mr-1.5 flex-shrink-0" />
+                <span>Online<span className="hidden sm:inline"> (AI Active)</span></span>
               </>
             ) : (
               <>
-                <WifiOff className="w-3.5 h-3.5 mr-1.5 animate-pulse" />
-                Offline Mode
+                <WifiOff className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 sm:mr-1.5 animate-pulse flex-shrink-0" />
+                <span>Offline<span className="hidden sm:inline"> Mode</span></span>
               </>
             )}
           </div>
           
-          <div className="flex items-center px-3 py-1 rounded-full bg-[#F4F4F1] border border-[#E5E5DF] text-xs font-bold text-[#4B4B43]">
-            <Flame className="w-3.5 h-3.5 mr-1 text-orange-500" />
-            {streak} Day Streak
+          <div className="flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-full bg-[#F4F4F1] border border-[#E5E5DF] text-[10px] sm:text-xs font-bold text-[#4B4B43]">
+            <Flame className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1 text-orange-500 flex-shrink-0" />
+            <span>{streak}<span className="hidden sm:inline"> Day</span> Streak</span>
           </div>
 
           <button
             type="button"
             onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center justify-center p-1.5 rounded-full bg-[#F4F4F1] border border-[#E5E5DF] hover:bg-[#E5E5DF] hover:border-[#6B7F62] text-[#4B4B43] transition-all cursor-pointer relative"
+            className="flex items-center justify-center p-1 sm:p-1.5 rounded-full bg-[#F4F4F1] border border-[#E5E5DF] hover:bg-[#E5E5DF] hover:border-[#6B7F62] text-[#4B4B43] transition-all cursor-pointer relative"
             title="Focus & Notification Settings"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             {enableWorkNotifications && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#6B7F62] rounded-full ring-2 ring-[#FAF9F6]"></span>
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 sm:w-2 sm:h-2 bg-[#6B7F62] rounded-full ring-2 ring-[#FAF9F6]"></span>
             )}
           </button>
         </div>
