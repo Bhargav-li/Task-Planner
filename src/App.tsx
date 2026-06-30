@@ -1437,7 +1437,7 @@ export default function App() {
             <Target className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-sm sm:text-lg font-bold tracking-tight text-[#1E1E1C] truncate">Focus Task Planner</h1>
+            <h1 className="text-sm sm:text-lg font-bold tracking-tight text-[#1E1E1C] truncate">Focus Path</h1>
             <p className="hidden sm:block text-[10px] sm:text-xs text-[#7A7A73] font-medium tracking-wide uppercase">Minimalist Mindspace</p>
           </div>
         </div>
@@ -3222,6 +3222,20 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFocusTask(promptAfterStopTask);
+                  setIsFocusMode(true);
+                  setIsTimerRunning(true);
+                  setPromptAfterStopTask(null);
+                }}
+                className="w-full bg-[#EBF5E9] border border-[#C8E6C9] hover:bg-[#D4EDDA] text-[#2E7D32] py-3.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer animate-pulse"
+              >
+                <Zap className="w-4 h-4 text-[#2E7D32]" />
+                <span>On it! (Start Focus Session)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => {

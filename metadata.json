@@ -1,5 +1,5 @@
 {
-  "name": "Focus Task Planner",
+  "name": "Focus Path",
   "description": "A minimalist, distraction-free productivity planner that uses server-side Gemini AI to optimize daily schedules, generate actionable task guidelines, and support offline task management.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
