@@ -32,7 +32,8 @@ import {
   CheckCircle,
   BarChart2,
   Settings,
-  Bell
+  Bell,
+  Key
 } from 'lucide-react';
 
 // Data Interfaces
@@ -731,6 +732,14 @@ export default function App() {
 
   // Continuous Work & Notifications Settings States
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem('focus_custom_api_key') || '';
+    } catch {
+      return '';
+    }
+  });
   const [enableWorkNotifications, setEnableWorkNotifications] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('focus_enable_work_notifications');
@@ -933,6 +942,14 @@ export default function App() {
   };
 
   // Save notification settings to LocalStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('focus_custom_api_key', customApiKey);
+    } catch (err) {
+      console.warn("Could not save to localStorage:", err);
+    }
+  }, [customApiKey]);
+
   useEffect(() => {
     try {
       localStorage.setItem('focus_enable_work_notifications', JSON.stringify(enableWorkNotifications));
@@ -1203,9 +1220,13 @@ export default function App() {
     }
 
     try {
+      const scheduleHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (customApiKey && customApiKey.trim() !== '') {
+        scheduleHeaders['x-gemini-api-key'] = customApiKey.trim();
+      }
       const response = await fetch('/api/schedule', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: scheduleHeaders,
         body: JSON.stringify({
           tasks: activeTasks,
           energyLevel,
@@ -1262,9 +1283,13 @@ export default function App() {
     }
 
     try {
+      const pathwayHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (customApiKey && customApiKey.trim() !== '') {
+        pathwayHeaders['x-gemini-api-key'] = customApiKey.trim();
+      }
       const response = await fetch('/api/pathway', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: pathwayHeaders,
         body: JSON.stringify({
           taskTitle: task.title,
           taskDescription: task.description,
@@ -1479,7 +1504,7 @@ export default function App() {
                   />
                 </div>
                 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="block text-[10px] font-bold text-[#7A7A73] uppercase tracking-wider mb-1">Priority</label>
                     <select
@@ -1505,16 +1530,46 @@ export default function App() {
                       <option value="Exercise">🏃 Exercise</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-[#7A7A73] uppercase tracking-wider mb-1">Est. Mins</label>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold text-[#7A7A73] uppercase tracking-wider">Est. Duration (Minutes)</label>
+                    <span className="text-[10px] font-bold text-[#6B7F62] bg-[#EBF5E9] px-1.5 py-0.5 rounded">{inputDuration || 30}m</span>
+                  </div>
+                  <div className="flex items-center space-x-3 bg-white border border-[#E5E5DF] rounded-lg px-3 py-1 h-[38px]">
                     <input 
-                      type="number" 
+                      type="range" 
                       min={1}
                       max={240}
-                      value={inputDuration}
-                      onChange={e => setInputDuration(Number(e.target.value) || 30)}
-                      className="w-full bg-white border border-[#E5E5DF] rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[#6B7F62] h-[30px]"
+                      value={inputDuration || 30}
+                      onChange={e => setInputDuration(Number(e.target.value))}
+                      className="flex-1 accent-[#6B7F62] h-1 bg-[#E5E5DF] rounded-lg appearance-none cursor-pointer"
                     />
+                    <div className="flex items-center space-x-1 border-l border-[#E5E5DF] pl-3 flex-shrink-0">
+                      <input 
+                        type="number" 
+                        min={1}
+                        max={240}
+                        value={inputDuration === 0 ? '' : inputDuration}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === '') {
+                            setInputDuration(0);
+                          } else {
+                            const num = Math.min(240, Math.max(1, Number(val)));
+                            setInputDuration(num);
+                          }
+                        }}
+                        onBlur={() => {
+                          if (!inputDuration || inputDuration < 1) {
+                            setInputDuration(30);
+                          }
+                        }}
+                        className="w-12 bg-[#FAF9F6] border border-[#E5E5DF] rounded px-1.5 py-0.5 text-xs font-bold text-center focus:outline-none focus:border-[#6B7F62]"
+                      />
+                      <span className="text-[10px] text-[#7A7A73] font-medium">min</span>
+                    </div>
                   </div>
                 </div>
 
@@ -2571,8 +2626,8 @@ export default function App() {
       {/* SYSTEM SETTINGS & NOTIFICATIONS MODAL */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-[#E5E5DF] rounded-2xl max-w-md w-full p-6 shadow-xl space-y-6 text-[#2D2D2A]">
-            <div className="flex items-center justify-between border-b border-[#F0EFEB] pb-4">
+          <div className="bg-white border border-[#E5E5DF] rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col shadow-xl text-[#2D2D2A]">
+            <div className="flex items-center justify-between border-b border-[#F0EFEB] p-6 pb-4 flex-shrink-0">
               <div className="flex items-center space-x-2">
                 <Settings className="w-5 h-5 text-[#6B7F62]" />
                 <h3 className="font-bold text-lg text-[#1E1E1C]">System & Notification Settings</h3>
@@ -2585,7 +2640,64 @@ export default function App() {
               </button>
             </div>
 
-            <div className="space-y-5">
+            <div className="space-y-5 overflow-y-auto p-6 pt-2 flex-1 scrollbar-thin">
+              {/* Custom Gemini API Key Configuration */}
+              <div className="space-y-3 p-4 bg-[#F5F7F4] border border-[#E0E5DF] rounded-xl">
+                <div className="flex items-center space-x-2 border-b border-[#E0E5DF] pb-2">
+                  <Key className="w-4 h-4 text-[#6B7F62]" />
+                  <span className="text-xs font-bold text-[#1E1E1C] uppercase tracking-wider">
+                    Custom Gemini API Key
+                  </span>
+                </div>
+                
+                <div className="space-y-2">
+                  <p className="text-xs text-[#7A7A73]">
+                    Use your own Gemini API key to avoid hourly token limits and ensure fast, private schedule generation.
+                  </p>
+                  
+                  <div className="relative flex items-center">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={customApiKey}
+                      onChange={(e) => setCustomApiKey(e.target.value)}
+                      placeholder="AIzaSy..."
+                      className="w-full bg-white border border-[#E5E5DF] rounded-lg pl-3 pr-10 py-1.5 text-xs font-mono focus:outline-none focus:border-[#6B7F62] h-[34px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2.5 text-[#7A7A73] hover:text-[#6B7F62] p-1 transition-colors cursor-pointer"
+                      title={showApiKey ? "Hide API Key" : "Show API Key"}
+                    >
+                      {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] flex items-center justify-between">
+                    <span>
+                      {customApiKey.trim() ? (
+                        <span className="text-[#2E7D32] font-semibold flex items-center gap-1">
+                          ● Using custom API key (limits disabled)
+                        </span>
+                      ) : (
+                        <span className="text-amber-700 font-medium flex items-center gap-1">
+                          ○ Using shared system key (subject to hourly limits)
+                        </span>
+                      )}
+                    </span>
+                    {customApiKey.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomApiKey('')}
+                        className="text-red-600 hover:text-red-800 hover:underline font-semibold cursor-pointer"
+                      >
+                        Clear Key
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Notifications Toggle */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -2836,7 +2948,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex justify-end pt-4 border-t border-[#F0EFEB]">
+            <div className="flex justify-end p-6 pt-4 border-t border-[#F0EFEB] flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setIsSettingsOpen(false)}

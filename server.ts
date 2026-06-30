@@ -77,7 +77,17 @@ function sanitizeInput(text: string): string {
 
 // Initialize Gemini client lazily.
 let aiInstance: GoogleGenAI | null = null;
-function getGeminiClient() {
+function getGeminiClient(customApiKey?: string) {
+  if (customApiKey && customApiKey.trim() !== '') {
+    return new GoogleGenAI({
+      apiKey: customApiKey.trim(),
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
   if (!aiInstance) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -95,22 +105,42 @@ function getGeminiClient() {
   return aiInstance;
 }
 
-// Helper to retry transient errors with exponential backoff
-async function retryWithBackoff<T>(fn: () => Promise<T>, retries = 3, delayMs = 800): Promise<T> {
+// Helper to retry transient errors with exponential backoff and model fallback
+async function retryWithBackoff<T>(fn: (model: string) => Promise<T>, retries = 5, delayMs = 1000): Promise<T> {
+  const models = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
   let attempt = 0;
+  let currentDelay = delayMs;
+  let modelIndex = 0;
   while (true) {
+    const currentModel = models[modelIndex];
     try {
-      return await fn();
+      return await fn(currentModel);
     } catch (error: any) {
       attempt++;
       const errorMsg = error?.message || '';
-      const isTransient = error?.status === 503 || error?.code === 503 || errorMsg.includes('503') || errorMsg.includes('UNAVAILABLE') || errorMsg.includes('high demand') || errorMsg.includes('temporary');
+      const isTransient = 
+        error?.status === 503 || 
+        error?.code === 503 || 
+        error?.status === 429 || 
+        error?.code === 429 || 
+        errorMsg.includes('503') || 
+        errorMsg.includes('429') || 
+        errorMsg.includes('UNAVAILABLE') || 
+        errorMsg.includes('high demand') || 
+        errorMsg.includes('temporary') || 
+        errorMsg.includes('resource exhausted');
       if (attempt >= retries || !isTransient) {
         throw error;
       }
-      console.warn(`Gemini API transient error (attempt ${attempt}/${retries}). Retrying in ${delayMs}ms... Error: ${errorMsg}`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      delayMs *= 2; // exponential backoff
+      // Try next fallback model on transient error
+      modelIndex = (modelIndex + 1) % models.length;
+      const nextModel = models[modelIndex];
+      // Add a randomized jitter between 0 and 500ms to avoid synchronization issues
+      const jitter = Math.floor(Math.random() * 500);
+      const totalDelay = currentDelay + jitter;
+      console.log(`[Gemini Retry System] Model busy (attempt ${attempt}/${retries}). Rotating to model ${nextModel} in ${totalDelay}ms... Status details: ${errorMsg.substring(0, 150)}`);
+      await new Promise(resolve => setTimeout(resolve, totalDelay));
+      currentDelay *= 2; // exponential backoff
     }
   }
 }
@@ -310,16 +340,19 @@ app.post('/api/schedule', async (req, res) => {
       record = { tokens: 0, resetTime: now + RESET_WINDOW_MS };
     }
 
-    if (record.tokens + estimatedInputTokens > MAX_TOKENS_PER_USER) {
+    const customApiKey = req.headers['x-gemini-api-key'] as string | undefined;
+    const hasCustomKey = customApiKey && customApiKey.trim() !== '';
+
+    if (!hasCustomKey && record.tokens + estimatedInputTokens > MAX_TOKENS_PER_USER) {
       console.warn(`Token limit exceeded for IP ${clientIp}. Used: ${record.tokens}, Attempted: ${estimatedInputTokens}`);
       return res.status(429).json({
         error: `Token usage limit exceeded. To maintain platform stability, each user is limited to 10% of system tokens per hour (100,000 tokens). You have used ${record.tokens} tokens in the past hour. Please wait before scheduling more tasks.`
       });
     }
 
-    const ai = getGeminiClient();
-    const response = await retryWithBackoff(() => ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+    const ai = getGeminiClient(customApiKey);
+    const response = await retryWithBackoff((modelToUse) => ai.models.generateContent({
+      model: modelToUse,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -424,16 +457,19 @@ app.post('/api/pathway', async (req, res) => {
       record = { tokens: 0, resetTime: now + RESET_WINDOW_MS };
     }
 
-    if (record.tokens + estimatedInputTokens > MAX_TOKENS_PER_USER) {
+    const customApiKey = req.headers['x-gemini-api-key'] as string | undefined;
+    const hasCustomKey = customApiKey && customApiKey.trim() !== '';
+
+    if (!hasCustomKey && record.tokens + estimatedInputTokens > MAX_TOKENS_PER_USER) {
       console.warn(`Token limit exceeded for IP ${clientIp}. Used: ${record.tokens}, Attempted: ${estimatedInputTokens}`);
       return res.status(429).json({
         error: `Token usage limit exceeded. To maintain platform stability, each user is limited to 10% of system tokens per hour (100,000 tokens). You have used ${record.tokens} tokens in the past hour. Please wait before requesting pathways.`
       });
     }
 
-    const ai = getGeminiClient();
-    const response = await retryWithBackoff(() => ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+    const ai = getGeminiClient(customApiKey);
+    const response = await retryWithBackoff((modelToUse) => ai.models.generateContent({
+      model: modelToUse,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
