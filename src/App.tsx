@@ -759,6 +759,25 @@ export default function App() {
   const [continuousWorkSeconds, setContinuousWorkSeconds] = useState<number>(0);
   const [showWorkBreakAlert, setShowWorkBreakAlert] = useState(false);
 
+  // Vibration Deadline Alarms States
+  const [enableVibrationAlarms, setEnableVibrationAlarms] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('focus_enable_vibration_alarms');
+      return saved ? JSON.parse(saved) : true;
+    } catch {
+      return true;
+    }
+  });
+  const [acknowledgedAlarmTaskIds, setAcknowledgedAlarmTaskIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('focus_acknowledged_alarm_tasks');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [promptAfterStopTask, setPromptAfterStopTask] = useState<Task | null>(null);
+
   // Clock
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -952,6 +971,22 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem('focus_enable_vibration_alarms', JSON.stringify(enableVibrationAlarms));
+    } catch (err) {
+      console.warn("Could not save to localStorage:", err);
+    }
+  }, [enableVibrationAlarms]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('focus_acknowledged_alarm_tasks', JSON.stringify(acknowledgedAlarmTaskIds));
+    } catch (err) {
+      console.warn("Could not save to localStorage:", err);
+    }
+  }, [acknowledgedAlarmTaskIds]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem('focus_enable_work_notifications', JSON.stringify(enableWorkNotifications));
     } catch (err) {
       console.warn("Could not save to localStorage:", err);
@@ -965,6 +1000,46 @@ export default function App() {
       console.warn("Could not save to localStorage:", err);
     }
   }, [continuousWorkLimit]);
+
+  // Active Alarm Task logic (due in <= 1 hour and unacknowledged)
+  const activeAlarmTask = React.useMemo(() => {
+    if (!enableVibrationAlarms) return null;
+    const now = currentTime.getTime();
+    return tasks.find(t => {
+      if (t.isCompleted) return false;
+      if (!t.targetTimestamp) return false;
+      const timeLeft = t.targetTimestamp - now;
+      // Triggers if deadline is within 1 hour, or overdue by up to 24 hours (and not already stopped)
+      return timeLeft <= 3600000 && timeLeft > -86400000 && !acknowledgedAlarmTaskIds.includes(t.id);
+    }) || null;
+  }, [tasks, acknowledgedAlarmTaskIds, enableVibrationAlarms, currentTime]);
+
+  // Repeated vibration trigger
+  useEffect(() => {
+    if (!activeAlarmTask) return;
+
+    const triggerVibration = () => {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate([600, 200, 600]);
+        } catch (e) {
+          console.warn("Vibration failed or blocked by browser:", e);
+        }
+      }
+    };
+
+    triggerVibration(); // Pulse immediately
+    const interval = setInterval(triggerVibration, 2500);
+
+    return () => {
+      clearInterval(interval);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          navigator.vibrate(0);
+        } catch (e) {}
+      }
+    };
+  }, [activeAlarmTask]);
 
   // Request Notification Permission
   const requestNotificationPermission = async () => {
@@ -2447,6 +2522,7 @@ export default function App() {
                         return t;
                       });
                       saveTasksToLocal(updatedTasks);
+                      setAcknowledgedAlarmTaskIds(prev => prev.filter(id => id !== settingDeadlineTask.id));
                       setSettingDeadlineTask(null);
                     }
                   }}
@@ -2797,6 +2873,54 @@ export default function App() {
                 </div>
               )}
 
+              {/* Urgent Vibration Alarms Toggle */}
+              <div className="space-y-2 pt-3 border-t border-[#F0EFEB]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-bold text-[#1E1E1C] flex items-center gap-1.5">
+                      <Zap className="w-4 h-4 text-red-500 animate-pulse" />
+                      Urgent Vibration Alarms
+                    </label>
+                    <p className="text-xs text-[#7A7A73] mt-0.5">
+                      Continuously vibrate when a task deadline is close (&le; 1hr) until manually stopped.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextState = !enableVibrationAlarms;
+                      setEnableVibrationAlarms(nextState);
+                    }}
+                    className={`w-11 h-6 flex items-center rounded-full p-1 transition-all duration-300 cursor-pointer flex-shrink-0 ${
+                      enableVibrationAlarms ? 'bg-[#6B7F62] justify-end' : 'bg-[#E5E5DF] justify-start'
+                    }`}
+                  >
+                    <span className="bg-white w-4 h-4 rounded-full shadow-md transition-all"></span>
+                  </button>
+                </div>
+                
+                {enableVibrationAlarms && (
+                  <div className="text-[11px] p-2 bg-[#FAF9F6] border border-[#E5E5DF] rounded-lg text-xs flex items-center gap-2">
+                    <span className="text-[#2E7D32] font-semibold flex items-center gap-1">
+                      ● Active (Alarms trigger 1hr before deadline)
+                    </span>
+                    {typeof navigator !== 'undefined' && navigator.vibrate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (navigator.vibrate) {
+                            navigator.vibrate([100, 50, 100]);
+                          }
+                        }}
+                        className="text-[10px] bg-[#FAF9F6] border border-[#E5E5DF] px-2 py-0.5 rounded text-xs text-[#6B7F62] hover:bg-[#6B7F62]/10 cursor-pointer ml-auto"
+                      >
+                        Test Vibration
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Tracking Session Metrics */}
               <div className="p-4 bg-[#FAF9F6] border border-[#E5E5DF] rounded-xl space-y-2">
                 <span className="block text-[10px] font-extrabold text-[#7A7A73] uppercase tracking-wider">
@@ -3011,6 +3135,128 @@ export default function App() {
                 className="w-full bg-[#FFF3CD] border border-[#FFE699] hover:bg-[#FFEBAA] text-[#856404] py-2.5 px-4 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 Dismiss & Keep Working
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MOBILE URGENT VIBRATION ALARM OVERLAY */}
+      {activeAlarmTask && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
+          <div className="bg-white border-4 border-red-500 rounded-3xl max-w-md w-full p-8 shadow-2xl text-[#2D2D2A] text-center space-y-8 animate-pulse">
+            <div className="space-y-4">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto text-red-600 border-2 border-red-300 animate-bounce">
+                <Bell className="w-10 h-10 animate-pulse" />
+              </div>
+              
+              <div className="space-y-1">
+                <span className="text-[10px] bg-red-100 text-red-700 px-3 py-1 rounded-full font-extrabold uppercase tracking-wider animate-pulse">
+                  ⚠️ URGENT DEADLINE ALARM
+                </span>
+                <h3 className="font-extrabold text-2xl text-[#1E1E1C] tracking-tight pt-2">
+                  {activeAlarmTask.title}
+                </h3>
+                {activeAlarmTask.description && (
+                  <p className="text-xs text-[#7A7A73] max-w-xs mx-auto line-clamp-2">
+                    {activeAlarmTask.description}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-[#FAF9F6] border border-[#E5E5DF] p-4 rounded-2xl space-y-2">
+              <div className="text-xs text-[#7A7A73]">Target finish time:</div>
+              <div className="font-mono text-lg font-extrabold text-[#1E1E1C] flex items-center justify-center gap-2">
+                <Clock className="w-5 h-5 text-red-600 animate-pulse" />
+                <span>{activeAlarmTask.targetDay} @ {activeAlarmTask.targetTime}</span>
+              </div>
+              <div className="text-xs font-bold text-red-600 animate-pulse">
+                ({formatTimeLeft(activeAlarmTask.targetTimestamp).text})
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const taskId = activeAlarmTask.id;
+                  setAcknowledgedAlarmTaskIds(prev => [...prev, taskId]);
+                  setPromptAfterStopTask(activeAlarmTask);
+                  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                    try {
+                      navigator.vibrate(0);
+                    } catch (e) {}
+                  }
+                }}
+                className="w-full bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white py-4 px-6 rounded-2xl text-sm font-extrabold tracking-wide transition-all shadow-lg shadow-red-600/30 cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Zap className="w-5 h-5 animate-pulse" />
+                <span>STOP VIBRATING ALARM</span>
+              </button>
+              
+              <p className="text-[11px] text-[#7A7A73]">
+                Your phone will continue to vibrate until you manually dismiss this alert.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POST-ALARM PROMPT DIALOG */}
+      {promptAfterStopTask && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white border border-[#E5E5DF] rounded-3xl max-w-md w-full p-8 shadow-2xl space-y-6 text-[#2D2D2A]">
+            <div className="text-center space-y-3">
+              <div className="w-16 h-16 bg-[#EBF5E9] rounded-full flex items-center justify-center mx-auto text-[#2E7D32] border border-[#C8E6C9]">
+                <CheckCircle className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] font-extrabold text-[#7A7A73] uppercase tracking-wider">
+                  Post-Alarm Review
+                </span>
+                <h3 className="font-extrabold text-xl text-[#1E1E1C] leading-snug">
+                  What would you like to do with "{promptAfterStopTask.title}"?
+                </h3>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  completeTaskWithTimestamp(promptAfterStopTask.id, Date.now());
+                  setPromptAfterStopTask(null);
+                }}
+                className="w-full bg-[#6B7F62] hover:bg-[#5D6F55] active:scale-[0.98] text-white py-3.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>Complete It Now</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const task = promptAfterStopTask;
+                  setPromptAfterStopTask(null);
+                  setTimeout(() => {
+                    setSettingDeadlineTask(task);
+                    setDeadlineDay(task.targetDay || 'Today');
+                    setDeadlineTime(task.targetTime || '17:00');
+                  }, 150);
+                }}
+                className="w-full bg-[#FAF9F6] border border-[#E5E5DF] hover:bg-[#F4F4F1] active:scale-[0.98] text-[#1E1E1C] py-3 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Calendar className="w-4 h-4 text-[#6B7F62]" />
+                <span>Reschedule / Set New Deadline</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPromptAfterStopTask(null)}
+                className="w-full bg-[#FAF9F6] border border-transparent hover:bg-gray-100 text-[#7A7A73] py-2 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+              >
+                Decide Later
               </button>
             </div>
           </div>
